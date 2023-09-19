@@ -1,6 +1,5 @@
-const { randomUUID } = require("crypto");
-const http = require("http");
-const { Server } = require("socket.io");
+import http from "http";
+import { Server } from "socket.io";
 
 const server = http.createServer();
 const io = new Server(server, {
@@ -13,6 +12,8 @@ const io = new Server(server, {
 server.listen(3001, () => {
   console.log("listening on *:3001");
 });
+
+const activeGames = [];
 
 //TODO: currently will lose game on refresh.. really need to keep socket id and game id stored client-side
 //that way we can get the game state (for both player and spectators), and if socket id is a player, then just carry on as norm \o/
@@ -32,15 +33,17 @@ io.on("connection", (socket) => {
 
     if (waitingPlayers.length > 1) {
       const playersToAction = waitingPlayers.slice(0, 2);
-      const roomId = randomUUID();
+      const gameId = randomUUID();
 
+      //construct game instance
+      //add game instance to list of active games
       for (player of playersToAction) {
-        player.join(roomId);
+        player.join(gameId);
         console.log(player.id, `- joining game ${roomId}`);
         player.leave("lobby");
         console.log(player.id, `- leaving lobby`);
         //TODO: on game join, pass default state, store room and state somewhere
-        player.emit("GAME_JOINED", { gameId: roomId });
+        player.emit("INITIATE_GAME", { gameId: roomId, board: [] });
       }
     }
   });

@@ -10,6 +10,8 @@
   "author": "Patrick Craig <patrick.craig@olmgroup.com>",
   "license": "ISC",
   "dependencies": {
+    "immer": "^10.0.2",
     "socket.io": "^4.6.0"
-  }
+  },
+  "type": "module"
 }
