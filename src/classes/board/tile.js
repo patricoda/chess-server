@@ -1,5 +1,5 @@
 import { immerable } from "immer";
-import { boardDimensions } from "../../utils/values";
+import { boardDimensions } from "../../utils/values.js";
 
 const COLUMN_VALUES = "abcdefgh";
 

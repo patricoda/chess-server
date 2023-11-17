@@ -1,5 +1,5 @@
-import { PieceType } from "../enums/enums";
-import Piece from "./piece";
+import { PieceType } from "../enums/enums.js";
+import Piece from "./piece.js";
 
 export default class Pawn extends Piece {
   type = PieceType.PAWN;

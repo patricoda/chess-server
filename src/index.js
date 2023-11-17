@@ -1,5 +1,8 @@
 import http from "http";
 import { Server } from "socket.io";
+import Game from "./classes/game.js";
+import { randomUUID } from "crypto";
+import { Allegiance } from "./enums/enums.js";
 
 const server = http.createServer();
 const io = new Server(server, {
@@ -31,20 +34,37 @@ io.on("connection", (socket) => {
 
     const waitingPlayers = await io.in("lobby").fetchSockets();
 
+    //TODO: emit that player is in lobby
+
     if (waitingPlayers.length > 1) {
       const playersToAction = waitingPlayers.slice(0, 2);
       const gameId = randomUUID();
 
-      //construct game instance
-      //add game instance to list of active games
-      for (player of playersToAction) {
+      const newGame = new Game(gameId, playersToAction);
+      newGame.init();
+
+      //add players to game room for communication
+      for (const player of playersToAction) {
         player.join(gameId);
-        console.log(player.id, `- joining game ${roomId}`);
+        console.log(player.id, `- joining game ${gameId}`);
         player.leave("lobby");
         console.log(player.id, `- leaving lobby`);
-        //TODO: on game join, pass default state, store room and state somewhere
-        player.emit("INITIATE_GAME", { gameId: roomId, board: [] });
       }
+
+      activeGames.push(newGame);
+
+      //TODO: separate emit for active player and everyone else?
+      //TODO: player names
+      //pass game id to client and player name / allegiance.
+      io.to(gameId).emit("GAME_INITIALISED", {
+        gameId: newGame.id,
+        players: newGame.players.map(({ name, allegiance }) => ({
+          name,
+          allegiance,
+        })),
+        boardState: JSON.stringify(newGame.board),
+        playerTurn: newGame.playerTurn,
+      });
     }
   });
 
@@ -58,6 +78,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("POST_MOVE", (message) => {
+    //TODO: can I change this to directly go to game room instead?
     //on post move, update room's game state, and emit the state to all users in room.
     io.to(socket.rooms).emit("GAME_UPDATED");
   });
