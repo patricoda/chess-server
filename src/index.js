@@ -2,7 +2,6 @@ import http from "http";
 import { Server } from "socket.io";
 import Game from "./classes/game.js";
 import { randomUUID } from "crypto";
-import { Allegiance } from "./enums/enums.js";
 
 const server = http.createServer();
 const io = new Server(server, {
@@ -16,7 +15,7 @@ server.listen(3001, () => {
   console.log("listening on *:3001");
 });
 
-const activeGames = [];
+const activeGames = new Map();
 
 //TODO: currently will lose game on refresh.. really need to keep socket id and game id stored client-side
 //that way we can get the game state (for both player and spectators), and if socket id is a player, then just carry on as norm \o/
@@ -51,19 +50,30 @@ io.on("connection", (socket) => {
         console.log(player.id, `- leaving lobby`);
       }
 
-      activeGames.push(newGame);
+      activeGames.set(gameId, newGame);
 
       //TODO: separate emit for active player and everyone else?
       //TODO: player names
       //pass game id to client and player name / allegiance.
-      io.to(gameId).emit("GAME_INITIALISED", {
-        gameId: newGame.id,
-        players: newGame.players.map(({ name, allegiance }) => ({
+      console.log(
+        newGame.players.map(({ id, name, allegiance, legalMoves }) => ({
+          id,
           name,
           allegiance,
-        })),
+          legalMoves,
+        }))
+      );
+      io.to(gameId).emit("GAME_INITIALISED", {
+        gameId: newGame.id,
+        players: newGame.players.map(
+          ({ id, name, allegiance, legalMoves }) => ({
+            id,
+            name,
+            allegiance,
+            legalMoves,
+          })
+        ),
         boardState: JSON.stringify(newGame.board),
-        playerTurn: newGame.playerTurn,
       });
     }
   });
@@ -77,9 +87,29 @@ io.on("connection", (socket) => {
     io.to(associatedRoomIds).emit("MESSAGE_RECEIVED", message);
   });
 
-  socket.on("POST_MOVE", (message) => {
-    //TODO: can I change this to directly go to game room instead?
-    //on post move, update room's game state, and emit the state to all users in room.
-    io.to(socket.rooms).emit("GAME_UPDATED");
+  //TODO: make sure only current user can make move
+  socket.on("POST_MOVE", ({ gameId, move }) => {
+    console.log(gameId);
+    const game = activeGames.get(gameId);
+
+    try {
+      console.log("performing move");
+      game.handleMove(move);
+      console.log("move performed");
+      //on post move, update room's game state, and emit the state to all users in room.
+      console.log("sending update");
+      io.to(gameId).emit("GAME_STATE_UPDATED", {
+        gameId: game.id,
+        players: game.players.map(({ id, name, allegiance, legalMoves }) => ({
+          id,
+          name,
+          allegiance,
+          legalMoves,
+        })),
+        boardState: JSON.stringify(game.board),
+      });
+    } catch (e) {
+      console.log(e);
+    }
   });
 });

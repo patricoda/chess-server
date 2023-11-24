@@ -1,5 +1,4 @@
 import Piece from "./classes/piece.js";
-import Pawn from "./classes/pawn.js";
 import {
   Allegiance,
   DirectionOperator,
@@ -18,23 +17,23 @@ export const setPieces = (board) => {
   board.tiles[0][6].piece = new Piece(Allegiance.BLACK, PieceType.KNIGHT);
   board.tiles[0][7].piece = new Piece(Allegiance.BLACK, PieceType.ROOK);
 
-  board.tiles[1][0].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][1].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][2].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][3].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][4].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][5].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][6].piece = new Pawn(Allegiance.BLACK);
-  board.tiles[1][7].piece = new Pawn(Allegiance.BLACK);
+  board.tiles[1][0].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][1].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][2].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][3].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][4].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][5].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][6].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
+  board.tiles[1][7].piece = new Piece(Allegiance.BLACK, PieceType.PAWN);
 
-  board.tiles[6][0].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][1].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][2].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][3].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][4].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][5].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][6].piece = new Pawn(Allegiance.WHITE);
-  board.tiles[6][7].piece = new Pawn(Allegiance.WHITE);
+  board.tiles[6][0].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][1].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][2].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][3].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][4].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][5].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][6].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
+  board.tiles[6][7].piece = new Piece(Allegiance.WHITE, PieceType.PAWN);
 
   board.tiles[7][0].piece = new Piece(Allegiance.WHITE, PieceType.ROOK);
   board.tiles[7][1].piece = new Piece(Allegiance.WHITE, PieceType.KNIGHT);
@@ -98,7 +97,7 @@ export const movePiece = (board, source, destination) => {
   sourceTile.piece = null;
 };
 
-export const getCheckingPieces = ({ board, allegiance }) => {
+export const getCheckingPieces = (board, allegiance) => {
   const flatTileArray = board.tiles.flat();
 
   //test moves from king tile for different types of movement type, and see if that piece is present
@@ -306,7 +305,7 @@ const handleSingleCheck = (
   }
 };
 
-export const getallegianceValidMoves = ({ board, allegiance }) => {
+export const getAllegianceValidMoves = ({ board, allegiance }) => {
   const flattenedTileArray = board.tiles.flat();
 
   const tilesWithValidMoves = flattenedTileArray.filter(
@@ -316,7 +315,7 @@ export const getallegianceValidMoves = ({ board, allegiance }) => {
   return tilesWithValidMoves;
 };
 
-export const generateLegalMoves = ({
+export const getLegalMoves = ({
   board,
   allegiance,
   checkingPieces,
@@ -354,6 +353,32 @@ export const generateLegalMoves = ({
 
   //filter king moves based on attacking tiles, etc
   evaluateLegalKngMoves(board, kingTile);
+
+  //TODO: store valid moves as chess notation
+  return currentPlayerPopulatedTiles
+    .filter(({ piece }) => {
+      return piece.type === PieceType.PAWN
+        ? //TODO: can we do something about this?
+          piece.captureMoves.length || piece.pushMoves.length
+        : piece.validMoves.length;
+    })
+    .reduce(
+      (
+        prev,
+        { notation, piece: { type, validMoves, pushMoves, captureMoves } }
+      ) => ({
+        ...prev,
+        [notation]:
+          type === PieceType.PAWN
+            ? [...pushMoves, ...captureMoves].map(
+                ({ row, col }) => board.getTile(row, col).notation
+              )
+            : validMoves.map(
+                ({ row, col }) => board.getTile(row, col).notation
+              ),
+      }),
+      {}
+    );
 };
 
 export const evaluateLegalKngMoves = (board, kingTile) => {
@@ -366,10 +391,8 @@ export const evaluateLegalKngMoves = (board, kingTile) => {
     destinationTile.piece = kingTile.piece;
     kingTile.piece = null;
 
-    const tileIsAttacked = !!getCheckingPieces({
-      board,
-      allegiance: kingPiece.allegiance,
-    }).length;
+    const tileIsAttacked = !!getCheckingPieces(board, kingPiece.allegiance)
+      .length;
 
     destinationTile.piece = piece;
     kingTile.piece = kingPiece;
@@ -435,6 +458,8 @@ export const generatePseudoLegalMoves = (
       );
       piece.pushMoves = pushMoves;
       piece.captureMoves = captureMoves;
+      console.log("push ", pushMoves);
+      console.log("capture ", captureMoves);
       return;
     case PieceType.ROOK:
       validMoves.push(...getLateralMoves(board, actionedTile));
@@ -539,7 +564,9 @@ const getPawnMoves = (board, actionedTile, mostRecentMove) => {
 const getPawnPushMoves = ({ tiles }, { row, col, piece }, direction) =>
   [
     tiles[nextTile(row, 1, direction)]?.[col],
-    !piece.hasMoved && tiles[nextTile(row, 2, direction)]?.[col],
+    !piece.hasMoved &&
+      !tiles[nextTile(row, 1, direction)]?.[col].piece &&
+      tiles[nextTile(row, 2, direction)]?.[col],
   ]
     .filter((tile) => tile && !tile.piece)
     .map(({ row, col }) => ({
@@ -565,11 +592,9 @@ const getPawnCaptureMoves = (
     }));
 
   if (mostRecentMove) {
-    const mostRecentMoveSourceTile = board.getTileByCoords(
-      mostRecentMove.source
-    );
+    const mostRecentMoveSourceTile = board.getTileByCoords(mostRecentMove.from);
     const mostRecentMoveDestinationTile = board.getTileByCoords(
-      mostRecentMove.destination
+      mostRecentMove.to
     );
 
     //check for en passant
@@ -805,7 +830,11 @@ export const promotePiece = (board, coords, newRank) => {
 
 export const isPromotable = (board, source, destination) => {
   const sourceTile = board.getTileByCoords(source);
+  console.log("source", source);
+  console.log("sourceTile", sourceTile);
   const destinationTile = board.getTileByCoords(destination);
+  console.log("destination", destination);
+  console.log("destinationTile", destinationTile);
 
   return (
     sourceTile.piece.type === PieceType.PAWN &&
