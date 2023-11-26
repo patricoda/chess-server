@@ -5,7 +5,7 @@ import {
   PieceType,
   SlidingPieceType,
 } from "./enums/enums.js";
-import { boardDimensions } from "./utils/values.js";
+import { boardDimensions } from "./utils/config.js";
 
 export const setPieces = (board) => {
   board.tiles[0][0].piece = new Piece(Allegiance.BLACK, PieceType.ROOK);
@@ -458,8 +458,6 @@ export const generatePseudoLegalMoves = (
       );
       piece.pushMoves = pushMoves;
       piece.captureMoves = captureMoves;
-      console.log("push ", pushMoves);
-      console.log("capture ", captureMoves);
       return;
     case PieceType.ROOK:
       validMoves.push(...getLateralMoves(board, actionedTile));
@@ -830,11 +828,7 @@ export const promotePiece = (board, coords, newRank) => {
 
 export const isPromotable = (board, source, destination) => {
   const sourceTile = board.getTileByCoords(source);
-  console.log("source", source);
-  console.log("sourceTile", sourceTile);
   const destinationTile = board.getTileByCoords(destination);
-  console.log("destination", destination);
-  console.log("destinationTile", destinationTile);
 
   return (
     sourceTile.piece.type === PieceType.PAWN &&

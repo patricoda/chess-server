@@ -4,7 +4,7 @@ import {
   COLUMN_VALUES,
   ROW_VALUES,
   boardDimensions,
-} from "../../utils/values.js";
+} from "../../utils/config.js";
 
 export default class Board {
   [immerable] = true;

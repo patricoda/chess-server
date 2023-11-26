@@ -4,6 +4,7 @@ import {
   getLegalMoves,
   isPromotable,
   movePiece,
+  promotePiece,
   setPieces,
 } from "../engine.js";
 import { Allegiance } from "../enums/enums.js";
@@ -14,11 +15,12 @@ export default class Game {
   players = [];
   board = [];
   moveHistory = [];
+  promotionState = { isAwaitingPromotionSelection: false, coords: "" };
+  promotableCoords = null;
   isStalemate = false;
   isCheckmate = false;
   //TODO: don't like these as game state fields
   checkingPieces = [];
-  promotableCoords = null;
 
   constructor(id, playerIds) {
     this.id = id;
@@ -35,8 +37,6 @@ export default class Game {
       checkingPieces: this.checkingPieces,
       moveHistory: this.moveHistory,
     });
-
-    console.log(this.getActivePlayer().legalMoves);
   }
 
   setPlayers(sockets) {
@@ -69,8 +69,23 @@ export default class Game {
     return this.players.find((player) => player.isPlayerTurn);
   }
 
-  handleMove({ from, to }) {
-    this.promotableCoords = isPromotable(this.board, from, to) ? to : null;
+  handleMoveReceived(move) {
+    this.move(move);
+
+    //if piece is promotable, delay next turn until promotion has been actioned
+    if (!this.promotionState.isAwaitingPromotionSelection) {
+      console.log("handling next turn");
+      this.startNextTurn();
+    } else {
+      console.log("awaiting promotion");
+    }
+  }
+
+  move({ from, to }) {
+    if (isPromotable(this.board, from, to)) {
+      this.promotionState.isAwaitingPromotionSelection = true;
+      this.promotionState.coords = to;
+    }
 
     movePiece(this.board, from, to);
 
@@ -78,15 +93,26 @@ export default class Game {
       from,
       to,
     });
+  }
 
-    //if piece is promotable, delay next turn until promotion has been actioned
-    if (!this.promotableCoords) {
-      this.handleNextTurn();
+  handlePromotionSelectionReceived(newRank) {
+    if (this.promotionState.isAwaitingPromotionSelection) {
+      console.log("promoting piece");
+      this.promote(newRank);
+
+      console.log("handling next turn");
+      this.startNextTurn();
     }
   }
 
-  handleNextTurn() {
-    this.getActivePlayer().legalMoves = [];
+  promote(newRank) {
+    promotePiece(this.board, this.promotionState.coords, newRank);
+    this.promotionState.isAwaitingPromotionSelection = false;
+    this.promotionState.coords = null;
+  }
+
+  startNextTurn() {
+    this.getActivePlayer().legalMoves = {};
     this.toggleActivePlayer();
 
     this.checkingPieces = getCheckingPieces(
@@ -94,7 +120,6 @@ export default class Game {
       this.getActivePlayer().allegiance
     );
 
-    console.log("board = ", this.board);
     this.getActivePlayer().legalMoves = getLegalMoves({
       board: this.board,
       allegiance: this.getActivePlayer().allegiance,
@@ -102,14 +127,42 @@ export default class Game {
       moveHistory: this.moveHistory,
     });
 
-    if (this.getActivePlayer().legalMoves.length) {
+    //check for checkmate / stalemate
+    this.checkGameCondition();
+  }
+
+  checkGameCondition() {
+    if (!Object.keys(this.getActivePlayer().legalMoves).length) {
       if (this.checkingPieces.length) {
         this.isCheckmate = true;
-        console.log(`checkmate! ${this.getActivePlayer.allegiance} loses!`);
+        console.log(`checkmate! ${this.getActivePlayer().allegiance} loses!`);
       } else {
         this.isStalemate = true;
         console.log(`stalemate!`);
       }
     }
+  }
+
+  //construct game state object intended to be sent to clients
+  toSendableObject() {
+    return {
+      gameId: this.id,
+      players: this.players.map(
+        ({ id, name, allegiance, legalMoves, isPlayerTurn }) => ({
+          id,
+          name,
+          allegiance,
+          legalMoves,
+          isPlayerTurn,
+        })
+      ),
+      //TODO send board as FEN string
+      boardState: JSON.stringify(this.board),
+      isAwaitingPromotionSelection:
+        this.promotionState.isAwaitingPromotionSelection,
+      isStalemate: this.isStalemate,
+      isCheckmate: this.isCheckmate,
+      moveHistory: this.moveHistory,
+    };
   }
 }
