@@ -22,10 +22,10 @@ export default class Game {
   //TODO: don't like these as game state fields
   checkingPieces = [];
 
-  constructor(id, playerIds) {
+  constructor(id, players) {
     this.id = id;
     this.board = new Board();
-    this.setPlayers(playerIds);
+    this.setPlayers(players);
   }
 
   init() {
@@ -39,18 +39,16 @@ export default class Game {
     });
   }
 
-  setPlayers(sockets) {
+  setPlayers(players) {
     //randomly select player to play white
     const whitePlayerId =
-      sockets[Math.floor(Math.random() * sockets.length)].id;
+      players[Math.floor(Math.random() * players.length)].userId;
 
-    for (const socket of sockets) {
-      //TODO definitely don't want to use socket IDs
-      const id = socket.id;
-      const isWhitePlayer = id === whitePlayerId;
+    for (const { userId } of players) {
+      const isWhitePlayer = userId === whitePlayerId;
 
       const newPlayer = new Player(
-        id,
+        userId,
         isWhitePlayer ? Allegiance.WHITE : Allegiance.BLACK,
         isWhitePlayer
       );
