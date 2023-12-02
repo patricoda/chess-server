@@ -23,10 +23,8 @@ const activeGames = new Map();
 io.use((socket, next) => {
   const existingSessionId = socket.handshake.auth.sessionId;
 
-  console.log(existingSessionId);
   //TODO: if two tabs are open on server start up, they return two separate sessions :(
   if (existingSessionId) {
-    console.log("has existing session id");
     //if a session id has been passed, find and restore the session if it exists
     const session = activeSessions.get(existingSessionId);
 
@@ -38,20 +36,25 @@ io.use((socket, next) => {
 
       return next();
     }
-    console.log("didnt find session");
+
+    console.log("No session found for session id: ", existingSessionId);
+  }
+
+  const username = socket.handshake.auth.username;
+
+  if (!username) {
+    console.log("no session or username for connecting user");
+    return next(new Error("invalid username"));
   }
 
   const sessionId = randomUUID();
   const userId = randomUUID();
-  const username = socket.handshake.auth.username;
 
   socket.sessionId = sessionId;
   socket.userId = userId;
   socket.username = username;
 
   activeSessions.set(sessionId, { sessionId, userId, username });
-  console.log("set new session");
-  console.log("active sessions = ", activeSessions.size);
   next();
 });
 
@@ -64,6 +67,7 @@ io.on("connection", (socket) => {
   socket.emit("SESSION_INITIALISED", {
     sessionId: socket.sessionId,
     userId: socket.userId,
+    username: socket.username,
   });
 
   //broadcasts to all sockets other than the one connecting
