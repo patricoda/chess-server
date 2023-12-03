@@ -11,7 +11,7 @@ import { Allegiance } from "../enums/enums.js";
 import Player from "./player.js";
 
 export default class Game {
-  id;
+  id = null;
   players = [];
   board = [];
   moveHistory = [];
@@ -19,6 +19,8 @@ export default class Game {
   promotableCoords = null;
   isStalemate = false;
   isCheckmate = false;
+  winningPlayer = null;
+
   //TODO: don't like these as game state fields
   checkingPieces = [];
 
@@ -67,15 +69,16 @@ export default class Game {
     return this.players.find((player) => player.isPlayerTurn);
   }
 
+  getInactivePlayer() {
+    return this.players.find((player) => !player.isPlayerTurn);
+  }
+
   handleMoveReceived(move) {
     this.move(move);
 
     //if piece is promotable, delay next turn until promotion has been actioned
     if (!this.promotionState.isAwaitingPromotionSelection) {
-      console.log("handling next turn");
       this.startNextTurn();
-    } else {
-      console.log("awaiting promotion");
     }
   }
 
@@ -95,10 +98,7 @@ export default class Game {
 
   handlePromotionSelectionReceived(newRank) {
     if (this.promotionState.isAwaitingPromotionSelection) {
-      console.log("promoting piece");
       this.promote(newRank);
-
-      console.log("handling next turn");
       this.startNextTurn();
     }
   }
@@ -132,20 +132,26 @@ export default class Game {
   checkGameCondition() {
     if (!Object.keys(this.getActivePlayer().legalMoves).length) {
       if (this.checkingPieces.length) {
+        console.log(
+          `${this.id} has ended in checkmate. Winner: ${
+            this.getInactivePlayer().allegiance
+          }`
+        );
         this.isCheckmate = true;
-        console.log(`checkmate! ${this.getActivePlayer().allegiance} loses!`);
+        this.winningPlayer = this.getInactivePlayer();
       } else {
         this.isStalemate = true;
-        console.log(`stalemate!`);
+        console.log(`${this.id} has ended in stalemate.`);
       }
     }
   }
 
   //construct game state object intended to be sent to clients
   toSendableObject() {
+    const { board, players, promotionState, ...otherFields } = this;
     return {
-      gameId: this.id,
-      players: this.players.map(
+      ...otherFields,
+      players: players.map(
         ({ id, name, allegiance, legalMoves, isPlayerTurn }) => ({
           id,
           name,
@@ -155,12 +161,8 @@ export default class Game {
         })
       ),
       //TODO send board as FEN string
-      boardState: JSON.stringify(this.board),
-      isAwaitingPromotionSelection:
-        this.promotionState.isAwaitingPromotionSelection,
-      isStalemate: this.isStalemate,
-      isCheckmate: this.isCheckmate,
-      moveHistory: this.moveHistory,
+      boardState: JSON.stringify(board),
+      isAwaitingPromotionSelection: promotionState.isAwaitingPromotionSelection,
     };
   }
 }

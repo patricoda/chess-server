@@ -55,6 +55,7 @@ io.use((socket, next) => {
   socket.username = username;
 
   activeSessions.set(sessionId, { sessionId, userId, username });
+
   next();
 });
 
@@ -85,17 +86,19 @@ io.on("connection", (socket) => {
         const playerIsParticipant = game.players.some(
           (player) => player.id === socket.userId
         );
-        //TODO: could set player online / offline state for other players?
+
         if (playerIsParticipant) {
+          console.log(
+            `returning ${socket.username} (${socket.userId}) to game ${gameId}`
+          );
           socket.join(gameId);
           io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
+
+          return;
         }
-
-        console.log(playerIsParticipant);
-
-        return;
       }
 
+      console.log(`${socket.username} (${socket.userId}) joining lobby`);
       socket.join("lobby");
 
       const lobbySockets = await io.in("lobby").fetchSockets();
@@ -108,9 +111,9 @@ io.on("connection", (socket) => {
           )
       );
 
-      console.log(uniquePlayerSockets.length);
-
       if (uniquePlayerSockets.length > 1) {
+        console.log("initialising new game");
+
         const playerSocketsToAction = uniquePlayerSockets.slice(0, 2);
 
         const gameId = randomUUID();
@@ -128,19 +131,16 @@ io.on("connection", (socket) => {
 
         activeGames.set(gameId, newGame);
 
-        io.to(gameId).emit("GAME_STATE_UPDATED", newGame.toSendableObject());
+        io.to(gameId).emit("GAME_STARTED", newGame.toSendableObject());
       }
     } catch (e) {
       console.log("error starting game - ", e);
     }
   });
 
-  //TODO: been more explicit in where this is sent
-  socket.on("POST_MESSAGE", (message) => {
+  socket.on("POST_MESSAGE", ({ roomId, message }) => {
     try {
-      const associatedRoomIds = Array.from(socket.rooms);
-
-      io.to(associatedRoomIds).emit("MESSAGE_RECEIVED", message);
+      io.to(roomId).emit("MESSAGE_RECEIVED", message);
     } catch (e) {
       console.log("error posting message - ", e);
     }

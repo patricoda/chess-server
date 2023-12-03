@@ -166,11 +166,24 @@ export const getCheckingPieces = (board, allegiance) => {
     []
   );
 
+  const kingCheckingTiles = getOmnidirectionalMoves(board, kingTile, 2).reduce(
+    (acc, { row, col }) => {
+      const tile = board.getTile(row, col);
+      const { piece } = tile;
+
+      return piece?.type === PieceType.KING && piece?.allegiance !== allegiance
+        ? [...acc, tile]
+        : acc;
+    },
+    []
+  );
+
   const checkingTiles = [
     ...pawnCheckingTiles,
     ...knightCheckingTiles,
     ...lateralCheckingTiles,
     ...diagonalCheckingTiles,
+    ...kingCheckingTiles,
   ];
 
   return checkingTiles;
@@ -354,7 +367,6 @@ export const getLegalMoves = ({
   //filter king moves based on attacking tiles, etc
   evaluateLegalKngMoves(board, kingTile);
 
-  //TODO: store valid moves as chess notation
   return currentPlayerPopulatedTiles
     .filter(({ piece }) => {
       return piece.type === PieceType.PAWN
