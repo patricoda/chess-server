@@ -16,20 +16,36 @@ server.listen(3001, () => {
   console.log("listening on *:3001");
 });
 
+//TODO make class for storing / handling sessions
+//TODO make class for storing / handling active games
 const activeSessions = new Map();
 const activeGames = new Map();
 
+const getActiveGameByPlayerId = (playerId) => {
+  for (const [gameId, game] of activeGames) {
+    const playerIsParticipant = game.players.some(
+      (player) => player.id === playerId
+    );
+
+    if (playerIsParticipant) {
+      return game;
+    }
+  }
+
+  return null;
+};
+
 //discover / create session on handshake
 io.use((socket, next) => {
+  console.log(`looking for session for connecting socket: ${socket.id}`);
   const existingSessionId = socket.handshake.auth.sessionId;
 
-  //TODO: if two tabs are open on server start up, they return two separate sessions :(
   if (existingSessionId) {
     //if a session id has been passed, find and restore the session if it exists
     const session = activeSessions.get(existingSessionId);
 
     if (activeSessions.get(existingSessionId)) {
-      console.log("found session");
+      console.log("found session with id: ", existingSessionId);
       socket.sessionId = existingSessionId;
       socket.userId = session.userId;
       socket.username = session.username;
@@ -37,17 +53,18 @@ io.use((socket, next) => {
       return next();
     }
 
-    console.log("No session found for session id: ", existingSessionId);
+    console.log(`no session found with id: ${existingSessionId}`);
   }
 
   const username = socket.handshake.auth.username;
 
   if (!username) {
-    console.log("no session or username for connecting user");
-    return next(new Error("invalid username"));
+    console.log(`no username for connecting socket: ${socket.id}`);
+    return next(new Error("Invalid username"));
   }
 
-  const sessionId = randomUUID();
+  //reuse existing session ID if present to ensure any other user sockets use same session on join
+  const sessionId = existingSessionId || randomUUID();
   const userId = randomUUID();
 
   socket.sessionId = sessionId;
@@ -56,11 +73,21 @@ io.use((socket, next) => {
 
   activeSessions.set(sessionId, { sessionId, userId, username });
 
+  console.log(
+    `new session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
+  );
+
   next();
 });
 
 io.on("connection", (socket) => {
+  console.log(`user connected - ${socket.username} (${socket.userId})`);
+
+  //join userId room to keep all user sockets grouped
+  socket.join(socket.userId);
+
   socket.on("disconnect", () => {
+    //TODO: check other sockets belonging to same session
     console.log(`${socket.id} disconnected`);
   });
 
@@ -77,25 +104,21 @@ io.on("connection", (socket) => {
     username: socket.username,
   });
 
-  console.log(`user connected - ${socket.username} (${socket.userId})`);
-
+  //TODO: investigate if this is an issue (as all user sockets listen and action)
   socket.on("AWAITING_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
-      for (const [gameId, game] of activeGames) {
-        const playerIsParticipant = game.players.some(
-          (player) => player.id === socket.userId
+      const game = !!getActiveGameByPlayerId(socket.userId);
+
+      if (game) {
+        console.log(
+          `returning ${socket.username} (${socket.userId}) to game ${game.id}`
         );
 
-        if (playerIsParticipant) {
-          console.log(
-            `returning ${socket.username} (${socket.userId}) to game ${gameId}`
-          );
-          socket.join(gameId);
-          io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
+        socket.join(game.id);
+        socket.emit("GAME_STATE_UPDATED", game.toSendableObject());
 
-          return;
-        }
+        return;
       }
 
       console.log(`${socket.username} (${socket.userId}) joining lobby`);
@@ -147,15 +170,16 @@ io.on("connection", (socket) => {
   });
 
   //TODO: make sure only current user can make move
-  socket.on("POST_MOVE", ({ gameId, move }) => {
+  //TODO: socket can only be in one game, so no need to pass gameId?
+  socket.on("POST_MOVE", ({ move }) => {
     try {
-      const game = activeGames.get(gameId);
+      const game = getActiveGameByPlayerId(socket.userId);
 
       if (game) {
         //TODO: check move has been posted by active player
-        game.handleMoveReceived(move);
+        game.handleMoveReceived(socket.userId, move);
 
-        io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
+        io.to(game.id).emit("GAME_STATE_UPDATED", game.toSendableObject());
       } else {
         console.log("no game found");
       }

@@ -2,7 +2,7 @@ export default class Player {
   id;
   allegiance;
   isPlayerTurn;
-  legalMoves = [];
+  legalMoves = {};
 
   constructor(id, allegiance, isPlayerTurn) {
     this.id = id;

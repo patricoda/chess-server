@@ -73,12 +73,28 @@ export default class Game {
     return this.players.find((player) => !player.isPlayerTurn);
   }
 
-  handleMoveReceived(move) {
-    this.move(move);
+  handleMoveReceived(playerId, move) {
+    const activePlayer = this.getActivePlayer();
 
-    //if piece is promotable, delay next turn until promotion has been actioned
-    if (!this.promotionState.isAwaitingPromotionSelection) {
-      this.startNextTurn();
+    if (activePlayer.id !== playerId) {
+      throw new Error(
+        "Move cannot be made by any player other than the active player"
+      );
+    } else {
+      const { from, to } = move;
+
+      if (
+        activePlayer.legalMoves[from]?.some((legalMove) => legalMove === to)
+      ) {
+        this.move(move);
+
+        //if piece is promotable, delay next turn until promotion has been actioned
+        if (!this.promotionState.isAwaitingPromotionSelection) {
+          this.startNextTurn();
+        }
+      } else {
+        throw new Error("Move is not legal");
+      }
     }
   }
 
