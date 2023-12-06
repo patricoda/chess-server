@@ -37,7 +37,7 @@ const getActiveGameByPlayerId = (playerId) => {
 
 //discover / create session on handshake
 io.use((socket, next) => {
-  console.log(`looking for session for connecting socket: ${socket.id}`);
+  console.log(`Looking for session for connecting socket: ${socket.id}`);
   const existingSessionId = socket.handshake.auth.sessionId;
 
   if (existingSessionId) {
@@ -45,7 +45,7 @@ io.use((socket, next) => {
     const session = activeSessions.get(existingSessionId);
 
     if (activeSessions.get(existingSessionId)) {
-      console.log("found session with id: ", existingSessionId);
+      console.log("Found session with id: ", existingSessionId);
       socket.sessionId = existingSessionId;
       socket.userId = session.userId;
       socket.username = session.username;
@@ -53,13 +53,13 @@ io.use((socket, next) => {
       return next();
     }
 
-    console.log(`no session found with id: ${existingSessionId}`);
+    console.log(`No session found with id: ${existingSessionId}`);
   }
 
   const username = socket.handshake.auth.username;
 
   if (!username) {
-    console.log(`no username for connecting socket: ${socket.id}`);
+    console.log(`No username for connecting socket: ${socket.id}`);
     return next(new Error("Invalid username"));
   }
 
@@ -74,7 +74,7 @@ io.use((socket, next) => {
   activeSessions.set(sessionId, { sessionId, userId, username });
 
   console.log(
-    `new session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
+    `New session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
   );
 
   next();
@@ -108,7 +108,7 @@ io.on("connection", (socket) => {
   socket.on("AWAITING_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
-      const game = !!getActiveGameByPlayerId(socket.userId);
+      const game = getActiveGameByPlayerId(socket.userId);
 
       if (game) {
         console.log(
@@ -120,11 +120,17 @@ io.on("connection", (socket) => {
 
         return;
       }
+    } catch (e) {
+      console.log(
+        `Error retrieving game for ${socket.username} (${socket.userId}) - `,
+        e
+      );
+    }
 
-      console.log(`${socket.username} (${socket.userId}) joining lobby`);
-      socket.join("lobby");
-
+    //no existing game found, send user to lobby to wait for opponent
+    try {
       const lobbySockets = await io.in("lobby").fetchSockets();
+
       //a single user could have multiple sockets, so find unique users.
       const uniquePlayerSockets = lobbySockets.filter(
         ({ userId }, i, arr) =>
@@ -134,8 +140,20 @@ io.on("connection", (socket) => {
           )
       );
 
+      if (
+        !uniquePlayerSockets.some((player) => player.userId === socket.userId)
+      ) {
+        console.log(`${socket.username} (${socket.userId}) joining lobby`);
+      } else {
+        console.log(
+          `${socket.username} (${socket.userId}) already waiting in lobby`
+        );
+      }
+
+      socket.join("lobby");
+
       if (uniquePlayerSockets.length > 1) {
-        console.log("initialising new game");
+        console.log("Initialising new game");
 
         const playerSocketsToAction = uniquePlayerSockets.slice(0, 2);
 
@@ -144,12 +162,14 @@ io.on("connection", (socket) => {
         const newGame = new Game(gameId, playerSocketsToAction);
         newGame.init();
 
-        //add players to game room for communication
-        for (const player of playerSocketsToAction) {
-          player.join(gameId);
-          console.log(player.id, `- joining game ${gameId}`);
-          player.leave("lobby");
-          console.log(player.id, `- leaving lobby`);
+        //find all associated sockets for each player and add them to game room
+        for (const playerSocket of playerSocketsToAction) {
+          const userId = playerSocket.userId;
+          console.log(userId, `- joining game ${gameId}`);
+          io.in(userId).socketsJoin(gameId);
+
+          console.log(userId, `- leaving lobby`);
+          io.in(userId).socketsLeave("lobby");
         }
 
         activeGames.set(gameId, newGame);
@@ -157,7 +177,7 @@ io.on("connection", (socket) => {
         io.to(gameId).emit("GAME_STARTED", newGame.toSendableObject());
       }
     } catch (e) {
-      console.log("error starting game - ", e);
+      console.log("Error starting game - ", e);
     }
   });
 
@@ -165,26 +185,23 @@ io.on("connection", (socket) => {
     try {
       io.to(roomId).emit("MESSAGE_RECEIVED", message);
     } catch (e) {
-      console.log("error posting message - ", e);
+      console.log("Error posting message - ", e);
     }
   });
 
-  //TODO: make sure only current user can make move
-  //TODO: socket can only be in one game, so no need to pass gameId?
   socket.on("POST_MOVE", ({ move }) => {
     try {
       const game = getActiveGameByPlayerId(socket.userId);
 
       if (game) {
-        //TODO: check move has been posted by active player
         game.handleMoveReceived(socket.userId, move);
 
         io.to(game.id).emit("GAME_STATE_UPDATED", game.toSendableObject());
       } else {
-        console.log("no game found");
+        throw new Error("game not found");
       }
     } catch (e) {
-      console.log("error performing move - ", e);
+      console.log(`error when performing move - `, e);
     }
   });
 
@@ -197,7 +214,7 @@ io.on("connection", (socket) => {
 
       io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
     } catch (e) {
-      console.log("error promotiong piece - ", e);
+      console.log("Error promotiong piece - ", e);
     }
   });
 });
