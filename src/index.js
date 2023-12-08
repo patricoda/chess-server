@@ -121,9 +121,9 @@ io.on("connection", (socket) => {
         return;
       }
     } catch (e) {
-      console.log(
-        `Error retrieving game for ${socket.username} (${socket.userId}) - `,
-        e
+      handleError(
+        socket,
+        `Error retrieving game for ${socket.username} (${socket.userId}) - ${e}`
       );
     }
 
@@ -177,7 +177,7 @@ io.on("connection", (socket) => {
         io.to(gameId).emit("GAME_STARTED", newGame.toSendableObject());
       }
     } catch (e) {
-      console.log("Error starting game - ", e);
+      handleError(null, `Error starting game - ${e}`);
     }
   });
 
@@ -185,7 +185,7 @@ io.on("connection", (socket) => {
     try {
       io.to(roomId).emit("MESSAGE_RECEIVED", message);
     } catch (e) {
-      console.log("Error posting message - ", e);
+      handleError(roomId, `Error posting message - ${e}`);
     }
   });
 
@@ -201,7 +201,7 @@ io.on("connection", (socket) => {
         throw new Error("game not found");
       }
     } catch (e) {
-      console.log(`error when performing move - `, e);
+      handleError(game.id, `Error when performing move - ${e}`);
     }
   });
 
@@ -214,7 +214,14 @@ io.on("connection", (socket) => {
 
       io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
     } catch (e) {
-      console.log("Error promotiong piece - ", e);
+      handleError(gameId, `Error promoting piece - ${e}`);
     }
   });
 });
+
+const handleError = (broadcastChannel, errorMessage) => {
+  console.log(errorMessage);
+  if (broadcastChannel) {
+    io.to(broadcastChannel).emit("ERROR", errorMessage);
+  }
+};
