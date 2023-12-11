@@ -7,20 +7,19 @@ import {
   promotePiece,
   setPieces,
 } from "../engine.js";
-import { Allegiance } from "../enums/enums.js";
+import { Allegiance, GameStatus, PieceType } from "../enums/enums.js";
 import Player from "./player.js";
 
 export default class Game {
   id = null;
+  status = GameStatus.NOT_STARTED;
+  playerTurn = Allegiance.WHITE;
+  legalMoves = {};
   players = [];
   board = [];
   moveHistory = [];
   promotionState = { isAwaitingPromotionSelection: false, coords: "" };
-  promotableCoords = null;
-  isStalemate = false;
-  isCheckmate = false;
   winningPlayer = null;
-
   //TODO: don't like these as game state fields
   checkingPieces = [];
 
@@ -33,12 +32,13 @@ export default class Game {
   init() {
     //TODO: pass FEN string to determine initial state
     setPieces(this.board);
-    this.getActivePlayer().legalMoves = getLegalMoves({
+    this.legalMoves = getLegalMoves({
       board: this.board,
       allegiance: this.getActivePlayer().allegiance,
       checkingPieces: this.checkingPieces,
       moveHistory: this.moveHistory,
     });
+    this.status = GameStatus.IN_PROGRESS;
   }
 
   setPlayers(players) {
@@ -51,41 +51,39 @@ export default class Game {
 
       const newPlayer = new Player(
         userId,
-        isWhitePlayer ? Allegiance.WHITE : Allegiance.BLACK,
-        isWhitePlayer
+        isWhitePlayer ? Allegiance.WHITE : Allegiance.BLACK
       );
 
       this.players.push(newPlayer);
     }
   }
 
-  toggleActivePlayer() {
-    for (const player of this.players) {
-      player.isPlayerTurn = !player.isPlayerTurn;
-    }
+  togglePlayerTurn() {
+    this.playerTurn =
+      this.playerTurn === Allegiance.WHITE
+        ? Allegiance.BLACK
+        : Allegiance.WHITE;
   }
 
   getActivePlayer() {
-    return this.players.find((player) => player.isPlayerTurn);
+    return this.players.find((player) => player.allegiance === this.playerTurn);
   }
 
   getInactivePlayer() {
-    return this.players.find((player) => !player.isPlayerTurn);
+    return this.players.find((player) => player.allegiance !== this.playerTurn);
   }
 
-  handleMoveReceived(playerId, move) {
+  handleMoveReceived(userId, move) {
     const activePlayer = this.getActivePlayer();
 
-    if (activePlayer.id !== playerId) {
+    if (activePlayer.userId !== userId) {
       throw new Error(
         "Move cannot be made by any player other than the active player"
       );
     } else {
       const { from, to } = move;
 
-      if (
-        activePlayer.legalMoves[from]?.some((legalMove) => legalMove === to)
-      ) {
+      if (this.legalMoves[from]?.some((legalMove) => legalMove === to)) {
         this.move(move);
 
         //if piece is promotable, delay next turn until promotion has been actioned
@@ -112,29 +110,42 @@ export default class Game {
     });
   }
 
-  handlePromotionSelectionReceived(newRank) {
-    if (this.promotionState.isAwaitingPromotionSelection) {
-      this.promote(newRank);
-      this.startNextTurn();
+  handlePromotionSelectionReceived(userId, newType) {
+    const activePlayer = this.getActivePlayer();
+
+    if (activePlayer.userId !== userId) {
+      throw new Error(
+        "Move cannot be made by any player other than the active player"
+      );
+    } else {
+      if (
+        this.promotionState.isAwaitingPromotionSelection &&
+        PieceType[newType]
+      ) {
+        this.promote(newType);
+        this.startNextTurn();
+      } else {
+        throw new Error("Promotion selection is not valid");
+      }
     }
   }
 
-  promote(newRank) {
-    promotePiece(this.board, this.promotionState.coords, newRank);
+  promote(newType) {
+    promotePiece(this.board, this.promotionState.coords, newType);
     this.promotionState.isAwaitingPromotionSelection = false;
     this.promotionState.coords = null;
   }
 
   startNextTurn() {
-    this.getActivePlayer().legalMoves = {};
-    this.toggleActivePlayer();
+    this.legalMoves = {};
+    this.togglePlayerTurn();
 
     this.checkingPieces = getCheckingPieces(
       this.board,
       this.getActivePlayer().allegiance
     );
 
-    this.getActivePlayer().legalMoves = getLegalMoves({
+    this.legalMoves = getLegalMoves({
       board: this.board,
       allegiance: this.getActivePlayer().allegiance,
       checkingPieces: this.checkingPieces,
@@ -146,39 +157,61 @@ export default class Game {
   }
 
   checkGameCondition() {
-    if (!Object.keys(this.getActivePlayer().legalMoves).length) {
+    if (!Object.keys(this.legalMoves).length) {
       if (this.checkingPieces.length) {
+        const winner = this.getInactivePlayer();
+        this.status = GameStatus.CHECKMATE;
+        this.winningPlayer = winner;
+
         console.log(
-          `${this.id} has ended in checkmate. Winner: ${
-            this.getInactivePlayer().allegiance
-          }`
+          `${this.id} has ended in checkmate. Winner: ${winner.allegiance}`
         );
-        this.isCheckmate = true;
-        this.winningPlayer = this.getInactivePlayer();
       } else {
-        this.isStalemate = true;
+        this.status = GameStatus.STALEMATE;
+
         console.log(`${this.id} has ended in stalemate.`);
       }
     }
   }
 
-  //construct game state object intended to be sent to clients
-  toSendableObject() {
+  //construct full game state object intended to be sent to clients on initialisation
+  toGameInitialisedObject() {
     const { board, players, promotionState, ...otherFields } = this;
     return {
       ...otherFields,
-      players: players.map(
-        ({ id, name, allegiance, legalMoves, isPlayerTurn }) => ({
-          id,
-          name,
-          allegiance,
-          legalMoves,
-          isPlayerTurn,
-        })
-      ),
+      players: players.map(({ userId, allegiance }) => ({
+        userId,
+        allegiance,
+      })),
       //TODO send board as FEN string
       boardState: JSON.stringify(board),
       isAwaitingPromotionSelection: promotionState.isAwaitingPromotionSelection,
+    };
+  }
+
+  //construct game state object intended to be sent to clients on each turn
+  toCurrentGameStatusObject() {
+    const {
+      id,
+      status,
+      playerTurn,
+      legalMoves,
+      board,
+      moveHistory,
+      promotionState,
+      winningPlayer,
+    } = this;
+
+    return {
+      id,
+      status,
+      playerTurn,
+      legalMoves,
+      //TODO send board as FEN string
+      boardState: JSON.stringify(board),
+      moveHistory,
+      isAwaitingPromotionSelection: promotionState.isAwaitingPromotionSelection,
+      winningPlayer,
     };
   }
 }

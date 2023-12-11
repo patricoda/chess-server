@@ -21,19 +21,41 @@ server.listen(3001, () => {
 const activeSessions = new Map();
 const activeGames = new Map();
 
-const getActiveGameByPlayerId = (playerId) => {
+const getActiveGameByUserId = (userId) => {
   for (const [gameId, game] of activeGames) {
-    const playerIsParticipant = game.players.some(
-      (player) => player.id === playerId
+    const userIsParticipant = game.players.some(
+      (player) => player.userId === userId
     );
 
-    if (playerIsParticipant) {
+    if (userIsParticipant) {
       return game;
     }
   }
 
   return null;
 };
+
+const getActiveSessionBySessionId = (sessionId) =>
+  activeSessions.get(sessionId);
+
+const getActiveSessionByUserId = (userId) => {
+  for (const [sessionId, session] of activeSessions) {
+    if (session.userId === userId) {
+      return session;
+    }
+  }
+
+  return null;
+};
+
+const getPlayerUserDetailsByGameId = (gameId) =>
+  activeGames.get(gameId).players.map((player) => {
+    const { userId, username, isConnected } = getActiveSessionByUserId(
+      player.userId
+    );
+
+    return { username, isConnected };
+  });
 
 //discover / create session on handshake
 io.use((socket, next) => {
@@ -42,9 +64,9 @@ io.use((socket, next) => {
 
   if (existingSessionId) {
     //if a session id has been passed, find and restore the session if it exists
-    const session = activeSessions.get(existingSessionId);
+    const session = getActiveSessionBySessionId(existingSessionId);
 
-    if (activeSessions.get(existingSessionId)) {
+    if (session) {
       console.log("Found session with id: ", existingSessionId);
       socket.sessionId = existingSessionId;
       socket.userId = session.userId;
@@ -83,12 +105,36 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log(`user connected - ${socket.username} (${socket.userId})`);
 
+  const userSession = getActiveSessionBySessionId(socket.sessionId);
+  activeSessions.set(socket.sessionId, { ...userSession, isConnected: true });
+
+  const activeGame = getActiveGameByUserId(socket.userId);
+
+  if (activeGame) {
+    io.to(activeGame.id).emit("USER_CONNECTED", socket.userId);
+  }
+
   //join userId room to keep all user sockets grouped
   socket.join(socket.userId);
 
-  socket.on("disconnect", () => {
-    //TODO: check other sockets belonging to same session
-    console.log(`${socket.id} disconnected`);
+  socket.on("disconnect", async () => {
+    const userSockets = await io.in(socket.userID).fetchSockets();
+
+    if (userSockets.length === 0) {
+      console.log(`User ${socket.userId} has disconnected`);
+
+      activeSessions.set(socket.sessionId, {
+        ...userSession,
+        isConnected: false,
+      });
+
+      const activeGame = getActiveGameByUserId(socket.userId);
+
+      if (activeGame) {
+        io.to(activeGame.id).emit("USER_DISCONNECTED", socket.userId);
+        //TODO - post forfeit implementation - start timer to auto forfeit game
+      }
+    }
   });
 
   //send session details to connecting socket
@@ -98,17 +144,10 @@ io.on("connection", (socket) => {
     username: socket.username,
   });
 
-  //broadcasts to all sockets other than the one connecting
-  socket.broadcast.emit("USER_CONNECTED", {
-    userId: socket.userId,
-    username: socket.username,
-  });
-
-  //TODO: investigate if this is an issue (as all user sockets listen and action)
   socket.on("AWAITING_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
-      const game = getActiveGameByPlayerId(socket.userId);
+      const game = getActiveGameByUserId(socket.userId);
 
       if (game) {
         console.log(
@@ -116,7 +155,11 @@ io.on("connection", (socket) => {
         );
 
         socket.join(game.id);
-        socket.emit("GAME_STATE_UPDATED", game.toSendableObject());
+        //TODO: extract into function
+        socket.emit("GAME_INITIALISED", {
+          userDetails: getPlayerUserDetailsByGameId(game.id),
+          gameState: game.toGameInitialisedObject(),
+        });
 
         return;
       }
@@ -129,7 +172,21 @@ io.on("connection", (socket) => {
 
     //no existing game found, send user to lobby to wait for opponent
     try {
+      socket.join("lobby");
+
       const lobbySockets = await io.in("lobby").fetchSockets();
+
+      if (
+        !lobbySockets.filter(
+          (playerSocket) => playerSocket.userId === socket.userId
+        ).length > 1
+      ) {
+        console.log(`${socket.username} (${socket.userId}) joined lobby`);
+      } else {
+        console.log(
+          `${socket.username} (${socket.userId}) already waiting in lobby`
+        );
+      }
 
       //a single user could have multiple sockets, so find unique users.
       const uniquePlayerSockets = lobbySockets.filter(
@@ -139,18 +196,6 @@ io.on("connection", (socket) => {
             ({ userId: userIdToCompare }) => userId === userIdToCompare
           )
       );
-
-      if (
-        !uniquePlayerSockets.some((player) => player.userId === socket.userId)
-      ) {
-        console.log(`${socket.username} (${socket.userId}) joining lobby`);
-      } else {
-        console.log(
-          `${socket.username} (${socket.userId}) already waiting in lobby`
-        );
-      }
-
-      socket.join("lobby");
 
       if (uniquePlayerSockets.length > 1) {
         console.log("Initialising new game");
@@ -174,7 +219,10 @@ io.on("connection", (socket) => {
 
         activeGames.set(gameId, newGame);
 
-        io.to(gameId).emit("GAME_STARTED", newGame.toSendableObject());
+        io.to(gameId).emit("GAME_INITIALISED", {
+          userDetails: getPlayerUserDetailsByGameId(newGame.id),
+          gameState: newGame.toGameInitialisedObject(),
+        });
       }
     } catch (e) {
       handleError(null, `Error starting game - ${e}`);
@@ -190,13 +238,16 @@ io.on("connection", (socket) => {
   });
 
   socket.on("POST_MOVE", ({ move }) => {
-    try {
-      const game = getActiveGameByPlayerId(socket.userId);
+    const game = getActiveGameByUserId(socket.userId);
 
+    try {
       if (game) {
         game.handleMoveReceived(socket.userId, move);
 
-        io.to(game.id).emit("GAME_STATE_UPDATED", game.toSendableObject());
+        io.to(game.id).emit(
+          "GAME_STATE_UPDATED",
+          game.toCurrentGameStatusObject()
+        );
       } else {
         throw new Error("game not found");
       }
@@ -205,16 +256,20 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("POST_PROMOTION_OPTION", ({ gameId, newRank }) => {
+  socket.on("POST_PROMOTION_OPTION", ({ newType }) => {
+    const game = getActiveGameByUserId(socket.userId);
+
     try {
-      const game = activeGames.get(gameId);
+      if (game) {
+        game.handlePromotionSelectionReceived(socket.userId, newType);
 
-      //TODO: check move has been posted by active player
-      game.handlePromotionSelectionReceived(newRank);
-
-      io.to(gameId).emit("GAME_STATE_UPDATED", game.toSendableObject());
+        io.to(game.id).emit(
+          "GAME_STATE_UPDATED",
+          game.toCurrentGameStatusObject()
+        );
+      }
     } catch (e) {
-      handleError(gameId, `Error promoting piece - ${e}`);
+      handleError(game.id, `Error promoting piece - ${e}`);
     }
   });
 });

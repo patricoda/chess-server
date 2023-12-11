@@ -832,10 +832,10 @@ export const hasMovedToEndOfBoard = (piece, destinationTile) =>
     destinationTile.row === boardDimensions.rows - 1) ||
   (piece.allegiance === Allegiance.WHITE && destinationTile.row === 0);
 
-export const promotePiece = (board, coords, newRank) => {
+export const promotePiece = (board, coords, newType) => {
   const sourceTile = board.getTileByCoords(coords);
 
-  sourceTile.piece = new Piece(sourceTile.piece.allegiance, newRank);
+  sourceTile.piece = new Piece(sourceTile.piece.allegiance, newType);
 };
 
 export const isPromotable = (board, source, destination) => {

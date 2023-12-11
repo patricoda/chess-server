@@ -1,3 +1,10 @@
+export const GameStatus = Object.freeze({
+  NOT_STARTED: "NOT_STARTED",
+  IN_PROGRESS: "IN_PROGRESS",
+  STALEMATE: "STALEMATE",
+  CHECKMATE: "CHECKMATE",
+});
+
 export const Allegiance = Object.freeze({
   BLACK: "BLACK",
   WHITE: "WHITE",
