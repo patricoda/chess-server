@@ -18,7 +18,7 @@ server.listen(3001, () => {
 
 //TODO make class for storing / handling sessions
 //TODO make class for storing / handling active games
-const activeSessions = new Map();
+const sessions = new Map();
 const activeGames = new Map();
 
 const getActiveGameByUserId = (userId) => {
@@ -35,11 +35,10 @@ const getActiveGameByUserId = (userId) => {
   return null;
 };
 
-const getActiveSessionBySessionId = (sessionId) =>
-  activeSessions.get(sessionId);
+const getActiveSessionBySessionId = (sessionId) => sessions.get(sessionId);
 
 const getActiveSessionByUserId = (userId) => {
-  for (const [sessionId, session] of activeSessions) {
+  for (const [sessionId, session] of sessions) {
     if (session.userId === userId) {
       return session;
     }
@@ -50,9 +49,7 @@ const getActiveSessionByUserId = (userId) => {
 
 const getPlayerUserDetailsByGameId = (gameId) =>
   activeGames.get(gameId).players.map((player) => {
-    const { userId, username, isConnected } = getActiveSessionByUserId(
-      player.userId
-    );
+    const { username, isConnected } = getActiveSessionByUserId(player.userId);
 
     return { username, isConnected };
   });
@@ -93,7 +90,7 @@ io.use((socket, next) => {
   socket.userId = userId;
   socket.username = username;
 
-  activeSessions.set(sessionId, { sessionId, userId, username });
+  sessions.set(sessionId, { sessionId, userId, username, isConnected: false });
 
   console.log(
     `New session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
@@ -106,7 +103,7 @@ io.on("connection", (socket) => {
   console.log(`user connected - ${socket.username} (${socket.userId})`);
 
   const userSession = getActiveSessionBySessionId(socket.sessionId);
-  activeSessions.set(socket.sessionId, { ...userSession, isConnected: true });
+  sessions.set(socket.sessionId, { ...userSession, isConnected: true });
 
   const activeGame = getActiveGameByUserId(socket.userId);
 
@@ -123,7 +120,7 @@ io.on("connection", (socket) => {
     if (userSockets.length === 0) {
       console.log(`User ${socket.userId} has disconnected`);
 
-      activeSessions.set(socket.sessionId, {
+      sessions.set(socket.sessionId, {
         ...userSession,
         isConnected: false,
       });
@@ -177,9 +174,9 @@ io.on("connection", (socket) => {
       const lobbySockets = await io.in("lobby").fetchSockets();
 
       if (
-        !lobbySockets.filter(
+        lobbySockets.filter(
           (playerSocket) => playerSocket.userId === socket.userId
-        ).length > 1
+        ).length <= 1
       ) {
         console.log(`${socket.username} (${socket.userId}) joined lobby`);
       } else {
@@ -189,18 +186,20 @@ io.on("connection", (socket) => {
       }
 
       //a single user could have multiple sockets, so find unique users.
-      const uniquePlayerSockets = lobbySockets.filter(
-        ({ userId }, i, arr) =>
-          i ===
-          arr.findIndex(
-            ({ userId: userIdToCompare }) => userId === userIdToCompare
-          )
-      );
+      const onlinePlayerSockets = lobbySockets
+        .filter(
+          ({ userId }, i, arr) =>
+            i ===
+            arr.findIndex(
+              ({ userId: userIdToCompare }) => userId === userIdToCompare
+            )
+        )
+        .filter(({ userId }) => getActiveSessionByUserId(userId).isConnected);
 
-      if (uniquePlayerSockets.length > 1) {
+      if (onlinePlayerSockets.length > 1) {
         console.log("Initialising new game");
 
-        const playerSocketsToAction = uniquePlayerSockets.slice(0, 2);
+        const playerSocketsToAction = onlinePlayerSockets.slice(0, 2);
 
         const gameId = randomUUID();
 
