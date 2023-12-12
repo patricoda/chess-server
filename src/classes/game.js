@@ -156,21 +156,36 @@ export default class Game {
     this.checkGameCondition();
   }
 
+  handleForfeit(userId) {
+    const winner = this.players.find((player) => player.userId !== userId);
+    this.endGame(GameStatus.FORFEIT, winner);
+  }
+
   checkGameCondition() {
     if (!Object.keys(this.legalMoves).length) {
       if (this.checkingPieces.length) {
-        const winner = this.getInactivePlayer();
-        this.status = GameStatus.CHECKMATE;
-        this.winningPlayer = winner;
-
-        console.log(
-          `${this.id} has ended in checkmate. Winner: ${winner.allegiance}`
-        );
+        this.endGame(GameStatus.CHECKMATE, this.getInactivePlayer());
       } else {
-        this.status = GameStatus.STALEMATE;
-
-        console.log(`${this.id} has ended in stalemate.`);
+        this.endGame(GameStatus.STALEMATE);
       }
+    }
+  }
+
+  endGame(status, winningPlayer) {
+    this.status = status;
+    this.winningPlayer = winningPlayer;
+    this.legalMoves = {};
+
+    if (status === GameStatus.CHECKMATE) {
+      console.log(
+        `${this.id} has ended in checkmate. Winner: ${winningPlayer.allegiance}`
+      );
+    } else if (status === GameStatus.STALEMATE) {
+      console.log(`${this.id} has ended in stalemate.`);
+    } else {
+      console.log(
+        `${this.id} has ended with a forfeit. Winner: ${winningPlayer.allegiance}`
+      );
     }
   }
 

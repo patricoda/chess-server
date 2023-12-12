@@ -3,6 +3,7 @@ export const GameStatus = Object.freeze({
   IN_PROGRESS: "IN_PROGRESS",
   STALEMATE: "STALEMATE",
   CHECKMATE: "CHECKMATE",
+  FORFEIT: "FORFEIT",
 });
 
 export const Allegiance = Object.freeze({

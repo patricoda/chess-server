@@ -271,6 +271,25 @@ io.on("connection", (socket) => {
       handleError(game.id, `Error promoting piece - ${e}`);
     }
   });
+
+  socket.on("FORFEIT", () => {
+    const game = getActiveGameByUserId(socket.userId);
+
+    try {
+      if (game) {
+        game.handleForfeit(socket.userId);
+
+        io.to(game.id).emit(
+          "GAME_STATE_UPDATED",
+          game.toCurrentGameStatusObject()
+        );
+      } else {
+        throw new Error("game not found");
+      }
+    } catch (e) {
+      handleError(game.id, `Error when attempting to forfeit - ${e}`);
+    }
+  });
 });
 
 const handleError = (broadcastChannel, errorMessage) => {
