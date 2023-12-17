@@ -157,8 +157,12 @@ export default class Game {
   }
 
   handleForfeit(userId) {
-    const winner = this.players.find((player) => player.userId !== userId);
-    this.endGame(GameStatus.FORFEIT, winner);
+    if (this.status !== GameStatus.IN_PROGRESS) {
+      throw new Error("Game cannot be forfeit as it is not in progress");
+    } else {
+      const winner = this.players.find((player) => player.userId !== userId);
+      this.endGame(GameStatus.FORFEIT, winner);
+    }
   }
 
   checkGameCondition() {

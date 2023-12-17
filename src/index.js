@@ -114,24 +114,9 @@ io.on("connection", (socket) => {
   //join userId room to keep all user sockets grouped
   socket.join(socket.userId);
 
-  socket.on("disconnect", async () => {
-    const userSockets = await io.in(socket.userID).fetchSockets();
-
-    if (userSockets.length === 0) {
-      console.log(`User ${socket.userId} has disconnected`);
-
-      sessions.set(socket.sessionId, {
-        ...userSession,
-        isConnected: false,
-      });
-
-      const activeGame = getActiveGameByUserId(socket.userId);
-
-      if (activeGame) {
-        io.to(activeGame.id).emit("USER_DISCONNECTED", socket.userId);
-        //TODO - post forfeit implementation - start timer to auto forfeit game
-      }
-    }
+  socket.on("disconnect", () => {
+    console.log(`${socket.userId} disconnected`);
+    handleAbandon(socket.userId);
   });
 
   //send session details to connecting socket
@@ -273,23 +258,10 @@ io.on("connection", (socket) => {
   });
 
   socket.on("FORFEIT", () => {
-    const game = getActiveGameByUserId(socket.userId);
-
-    try {
-      if (game) {
-        game.handleForfeit(socket.userId);
-
-        io.to(game.id).emit(
-          "GAME_STATE_UPDATED",
-          game.toCurrentGameStatusObject()
-        );
-      } else {
-        throw new Error("game not found");
-      }
-    } catch (e) {
-      handleError(game.id, `Error when attempting to forfeit - ${e}`);
-    }
+    handleForfeit(socket.userId);
   });
+
+  socket.on("LEAVE_GAME", () => handleLeaveGame(socket.userId));
 });
 
 const handleError = (broadcastChannel, errorMessage) => {
@@ -297,4 +269,55 @@ const handleError = (broadcastChannel, errorMessage) => {
   if (broadcastChannel) {
     io.to(broadcastChannel).emit("ERROR", errorMessage);
   }
+};
+
+const handleForfeit = (userId) => {
+  const game = getActiveGameByUserId(userId);
+
+  try {
+    if (game) {
+      game.handleForfeit(userId);
+
+      io.to(game.id).emit(
+        "GAME_STATE_UPDATED",
+        game.toCurrentGameStatusObject()
+      );
+    } else {
+      throw new Error("game not found");
+    }
+  } catch (e) {
+    handleError(game?.id, `Error when attempting to forfeit - ${e}`);
+  }
+};
+
+const handleLeaveGame = (userId) => {
+  const game = getActiveGameByUserId(userId);
+
+  try {
+    if (game) {
+      game.players.splice(
+        game.players.findIndex((player) => player.userId === userId),
+        1
+      );
+
+      io.in(userId).socketsLeave(game.id);
+
+      console.log(`${userId} has left game ${game.id}`);
+
+      //if both players have left, remove the game from game store
+      if (game.players.length === 0) {
+        activeGames.delete(game.id);
+        console.log(`removed game ${game.id}`);
+      }
+    } else {
+      throw new Error("game not found");
+    }
+  } catch (e) {
+    handleError(game?.id, `Error when attempting to leave - ${e}`);
+  }
+};
+
+const handleAbandon = (userId) => {
+  handleForfeit(userId);
+  handleLeaveGame(userId);
 };

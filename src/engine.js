@@ -365,7 +365,7 @@ export const getLegalMoves = ({
   }
 
   //filter king moves based on attacking tiles, etc
-  evaluateLegalKngMoves(board, kingTile);
+  evaluateLegalKingMoves(board, kingTile);
 
   return currentPlayerPopulatedTiles
     .filter(({ piece }) => {
@@ -393,7 +393,7 @@ export const getLegalMoves = ({
     );
 };
 
-export const evaluateLegalKngMoves = (board, kingTile) => {
+export const evaluateLegalKingMoves = (board, kingTile) => {
   //for each move, move the king temporarily, and see if it would be in check
   kingTile.piece.validMoves = kingTile.piece.validMoves.filter((move) => {
     const destinationTile = board.getTile(move.row, move.col);
