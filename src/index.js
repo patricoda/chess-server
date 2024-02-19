@@ -140,7 +140,7 @@ io.on("connection", (socket) => {
         //TODO: extract into function
         socket.emit("GAME_INITIALISED", {
           userDetails: getPlayerUserDetailsByGameId(game.id),
-          gameState: game.toGameInitialisedObject(),
+          gameState: game.getFullGameState(),
         });
 
         return;
@@ -186,26 +186,24 @@ io.on("connection", (socket) => {
 
         const playerSocketsToAction = onlinePlayerSockets.slice(0, 2);
 
-        const gameId = randomUUID();
-
-        const newGame = new Game(gameId, playerSocketsToAction);
+        const newGame = new Game(playerSocketsToAction);
         newGame.init();
 
         //find all associated sockets for each player and add them to game room
         for (const playerSocket of playerSocketsToAction) {
           const userId = playerSocket.userId;
-          console.log(userId, `- joining game ${gameId}`);
-          io.in(userId).socketsJoin(gameId);
+          console.log(userId, `- joining game ${newGame.id}`);
+          io.in(userId).socketsJoin(newGame.id);
 
           console.log(userId, `- leaving lobby`);
           io.in(userId).socketsLeave("lobby");
         }
 
-        activeGames.set(gameId, newGame);
+        activeGames.set(newGame.id, newGame);
 
-        io.to(gameId).emit("GAME_INITIALISED", {
+        io.to(newGame.id).emit("GAME_INITIALISED", {
           userDetails: getPlayerUserDetailsByGameId(newGame.id),
-          gameState: newGame.toGameInitialisedObject(),
+          gameState: newGame.getFullGameState(),
         });
       }
     } catch (e) {
@@ -226,12 +224,9 @@ io.on("connection", (socket) => {
 
     try {
       if (game) {
-        game.handleMoveReceived(socket.userId, move);
+        game.move(socket.userId, move);
 
-        io.to(game.id).emit(
-          "GAME_STATE_UPDATED",
-          game.toCurrentGameStatusObject()
-        );
+        io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
       } else {
         throw new Error("game not found");
       }
@@ -245,12 +240,9 @@ io.on("connection", (socket) => {
 
     try {
       if (game) {
-        game.handlePromotionSelectionReceived(socket.userId, newType);
+        game.promote(socket.userId, newType);
 
-        io.to(game.id).emit(
-          "GAME_STATE_UPDATED",
-          game.toCurrentGameStatusObject()
-        );
+        io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
       }
     } catch (e) {
       handleError(game.id, `Error promoting piece - ${e}`);
@@ -276,12 +268,9 @@ const handleForfeit = (userId) => {
 
   try {
     if (game) {
-      game.handleForfeit(userId);
+      game.forfeit(userId);
 
-      io.to(game.id).emit(
-        "GAME_STATE_UPDATED",
-        game.toCurrentGameStatusObject()
-      );
+      io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
     } else {
       throw new Error("game not found");
     }

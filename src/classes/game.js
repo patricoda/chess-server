@@ -9,6 +9,7 @@ import {
 } from "../engine.js";
 import { Allegiance, GameStatus, PieceType } from "../enums/enums.js";
 import Player from "./player.js";
+import { randomUUID } from "crypto";
 
 export default class Game {
   id = null;
@@ -23,8 +24,8 @@ export default class Game {
   //TODO: don't like these as game state fields
   checkingPieces = [];
 
-  constructor(id, players) {
-    this.id = id;
+  constructor(players) {
+    this.id = randomUUID();
     this.board = new Board();
     this.setPlayers(players);
   }
@@ -58,13 +59,6 @@ export default class Game {
     }
   }
 
-  togglePlayerTurn() {
-    this.playerTurn =
-      this.playerTurn === Allegiance.WHITE
-        ? Allegiance.BLACK
-        : Allegiance.WHITE;
-  }
-
   getActivePlayer() {
     return this.players.find((player) => player.allegiance === this.playerTurn);
   }
@@ -73,7 +67,14 @@ export default class Game {
     return this.players.find((player) => player.allegiance !== this.playerTurn);
   }
 
-  handleMoveReceived(userId, move) {
+  #togglePlayerTurn() {
+    this.playerTurn =
+      this.playerTurn === Allegiance.WHITE
+        ? Allegiance.BLACK
+        : Allegiance.WHITE;
+  }
+
+  move(userId, move) {
     const activePlayer = this.getActivePlayer();
 
     if (activePlayer.userId !== userId) {
@@ -84,11 +85,11 @@ export default class Game {
       const { from, to } = move;
 
       if (this.legalMoves[from]?.some((legalMove) => legalMove === to)) {
-        this.move(move);
+        this.#processMove(move);
 
         //if piece is promotable, delay next turn until promotion has been actioned
         if (!this.promotionState.isAwaitingPromotionSelection) {
-          this.startNextTurn();
+          this.#startNextTurn();
         }
       } else {
         throw new Error("Move is not legal");
@@ -96,7 +97,7 @@ export default class Game {
     }
   }
 
-  move({ from, to }) {
+  #processMove({ from, to }) {
     if (isPromotable(this.board, from, to)) {
       this.promotionState.isAwaitingPromotionSelection = true;
       this.promotionState.coords = to;
@@ -110,7 +111,7 @@ export default class Game {
     });
   }
 
-  handlePromotionSelectionReceived(userId, newType) {
+  promote(userId, newType) {
     const activePlayer = this.getActivePlayer();
 
     if (activePlayer.userId !== userId) {
@@ -122,23 +123,23 @@ export default class Game {
         this.promotionState.isAwaitingPromotionSelection &&
         PieceType[newType]
       ) {
-        this.promote(newType);
-        this.startNextTurn();
+        this.#processPromotion(newType);
+        this.#startNextTurn();
       } else {
         throw new Error("Promotion selection is not valid");
       }
     }
   }
 
-  promote(newType) {
+  #processPromotion(newType) {
     promotePiece(this.board, this.promotionState.coords, newType);
     this.promotionState.isAwaitingPromotionSelection = false;
     this.promotionState.coords = null;
   }
 
-  startNextTurn() {
+  #startNextTurn() {
     this.legalMoves = {};
-    this.togglePlayerTurn();
+    this.#togglePlayerTurn();
 
     this.checkingPieces = getCheckingPieces(
       this.board,
@@ -153,29 +154,29 @@ export default class Game {
     });
 
     //check for checkmate / stalemate
-    this.checkGameCondition();
+    this.#checkGameCondition();
   }
 
-  handleForfeit(userId) {
+  forfeit(userId) {
     if (this.status !== GameStatus.IN_PROGRESS) {
       throw new Error("Game cannot be forfeit as it is not in progress");
     } else {
       const winner = this.players.find((player) => player.userId !== userId);
-      this.endGame(GameStatus.FORFEIT, winner);
+      this.#endGame(GameStatus.FORFEIT, winner);
     }
   }
 
-  checkGameCondition() {
+  #checkGameCondition() {
     if (!Object.keys(this.legalMoves).length) {
       if (this.checkingPieces.length) {
-        this.endGame(GameStatus.CHECKMATE, this.getInactivePlayer());
+        this.#endGame(GameStatus.CHECKMATE, this.getInactivePlayer());
       } else {
-        this.endGame(GameStatus.STALEMATE);
+        this.#endGame(GameStatus.STALEMATE);
       }
     }
   }
 
-  endGame(status, winningPlayer) {
+  #endGame(status, winningPlayer) {
     this.status = status;
     this.winningPlayer = winningPlayer;
     this.legalMoves = {};
@@ -194,7 +195,7 @@ export default class Game {
   }
 
   //construct full game state object intended to be sent to clients on initialisation
-  toGameInitialisedObject() {
+  getFullGameState() {
     const { board, players, promotionState, ...otherFields } = this;
     return {
       ...otherFields,
@@ -209,7 +210,7 @@ export default class Game {
   }
 
   //construct game state object intended to be sent to clients on each turn
-  toCurrentGameStatusObject() {
+  getGameState() {
     const {
       id,
       status,
