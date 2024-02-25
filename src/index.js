@@ -1,7 +1,7 @@
 import http from "http";
 import { Server } from "socket.io";
-import Game from "./classes/game.js";
 import { randomUUID } from "crypto";
+import Game from "@patricoda/chess-engine";
 
 const server = http.createServer();
 
