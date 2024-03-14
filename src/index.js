@@ -1,7 +1,7 @@
 import http from "http";
 import { Server } from "socket.io";
 import { randomUUID } from "crypto";
-import Game from "@patricoda/chess-engine";
+import GameSession from "./classes/gameSession.js";
 
 const server = http.createServer();
 
@@ -16,31 +16,32 @@ server.listen(3001, () => {
   console.log("listening on *:3001");
 });
 
-//TODO make class for storing / handling sessions
+//TODO make class for storing / handling userSessions
 //TODO make class for storing / handling active games
-const sessions = new Map();
-const activeGames = new Map();
+const userSessions = new Map();
+const gameSessions = new Map();
 
-const getActiveGameByUserId = (userId) => {
-  for (const [gameId, game] of activeGames) {
-    const userIsParticipant = game.players.some(
+const getActiveGameSessionByUserId = (userId) => {
+  for (const [id, gameSession] of gameSessions) {
+    const userIsParticipant = gameSession.players.some(
       (player) => player.userId === userId
     );
 
     if (userIsParticipant) {
-      return game;
+      return gameSession;
     }
   }
 
   return null;
 };
 
-const getActiveSessionBySessionId = (sessionId) => sessions.get(sessionId);
+const getActiveUserSessionBySessionId = (sessionId) =>
+  userSessions.get(sessionId);
 
 const getActiveSessionByUserId = (userId) => {
-  for (const [sessionId, session] of sessions) {
-    if (session.userId === userId) {
-      return session;
+  for (const [id, userSession] of userSessions) {
+    if (userSession.userId === userId) {
+      return userSession;
     }
   }
 
@@ -48,31 +49,31 @@ const getActiveSessionByUserId = (userId) => {
 };
 
 const getPlayerUserDetailsByGameId = (gameId) =>
-  activeGames.get(gameId).players.map((player) => {
+  gameSessions.get(gameId).players.map((player) => {
     const { username, isConnected } = getActiveSessionByUserId(player.userId);
 
     return { username, isConnected };
   });
 
-//discover / create session on handshake
+//discover / create user session on handshake
 io.use((socket, next) => {
-  console.log(`Looking for session for connecting socket: ${socket.id}`);
+  console.log(`Looking for user session for connecting socket: ${socket.id}`);
   const existingSessionId = socket.handshake.auth.sessionId;
 
   if (existingSessionId) {
     //if a session id has been passed, find and restore the session if it exists
-    const session = getActiveSessionBySessionId(existingSessionId);
+    const userSession = getActiveUserSessionBySessionId(existingSessionId);
 
-    if (session) {
-      console.log("Found session with id: ", existingSessionId);
+    if (userSession) {
+      console.log("Found user session with id: ", existingSessionId);
       socket.sessionId = existingSessionId;
-      socket.userId = session.userId;
-      socket.username = session.username;
+      socket.userId = userSession.userId;
+      socket.username = userSession.username;
 
       return next();
     }
 
-    console.log(`No session found with id: ${existingSessionId}`);
+    console.log(`No user session found with id: ${existingSessionId}`);
   }
 
   const username = socket.handshake.auth.username;
@@ -82,7 +83,7 @@ io.use((socket, next) => {
     return next(new Error("Invalid username"));
   }
 
-  //reuse existing session ID if present to ensure any other user sockets use same session on join
+  //reuse existing session ID if present to ensure any other user sockets use same user session on join
   const sessionId = existingSessionId || randomUUID();
   const userId = randomUUID();
 
@@ -90,10 +91,15 @@ io.use((socket, next) => {
   socket.userId = userId;
   socket.username = username;
 
-  sessions.set(sessionId, { sessionId, userId, username, isConnected: false });
+  userSessions.set(sessionId, {
+    sessionId,
+    userId,
+    username,
+    isConnected: false,
+  });
 
   console.log(
-    `New session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
+    `New user session created for connecting socket: ${socket.id}, user details: ${socket.username} (${socket.userId})`
   );
 
   next();
@@ -102,10 +108,10 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log(`user connected - ${socket.username} (${socket.userId})`);
 
-  const userSession = getActiveSessionBySessionId(socket.sessionId);
-  sessions.set(socket.sessionId, { ...userSession, isConnected: true });
+  const userSession = getActiveUserSessionBySessionId(socket.sessionId);
+  userSessions.set(socket.sessionId, { ...userSession, isConnected: true });
 
-  const activeGame = getActiveGameByUserId(socket.userId);
+  const activeGame = getActiveGameSessionByUserId(socket.userId);
 
   if (activeGame) {
     io.to(activeGame.id).emit("USER_CONNECTED", socket.userId);
@@ -119,7 +125,7 @@ io.on("connection", (socket) => {
     handleAbandon(socket.userId);
   });
 
-  //send session details to connecting socket
+  //send user session details to connecting socket
   socket.emit("SESSION_INITIALISED", {
     sessionId: socket.sessionId,
     userId: socket.userId,
@@ -129,18 +135,18 @@ io.on("connection", (socket) => {
   socket.on("AWAITING_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
-      const game = getActiveGameByUserId(socket.userId);
+      const gameSession = getActiveGameSessionByUserId(socket.userId);
 
-      if (game) {
+      if (gameSession) {
         console.log(
-          `returning ${socket.username} (${socket.userId}) to game ${game.id}`
+          `returning ${socket.username} (${socket.userId}) to game ${gameSession.id}`
         );
 
-        socket.join(game.id);
+        socket.join(gameSession.id);
         //TODO: extract into function
         socket.emit("GAME_INITIALISED", {
-          userDetails: getPlayerUserDetailsByGameId(game.id),
-          gameState: game.getFullGameState(),
+          userDetails: getPlayerUserDetailsByGameId(gameSession.id),
+          gameState: gameSession.getFullGameState(),
         });
 
         return;
@@ -182,28 +188,28 @@ io.on("connection", (socket) => {
         .filter(({ userId }) => getActiveSessionByUserId(userId).isConnected);
 
       if (onlinePlayerSockets.length > 1) {
-        console.log("Initialising new game");
+        console.log("Initialising new game session");
 
         const playerSocketsToAction = onlinePlayerSockets.slice(0, 2);
 
-        const newGame = new Game(playerSocketsToAction);
-        newGame.init();
+        const newGameSession = new GameSession(playerSocketsToAction);
+        newGameSession.startGame();
 
         //find all associated sockets for each player and add them to game room
         for (const playerSocket of playerSocketsToAction) {
           const userId = playerSocket.userId;
-          console.log(userId, `- joining game ${newGame.id}`);
-          io.in(userId).socketsJoin(newGame.id);
+          console.log(userId, `- joining game ${newGameSession.id}`);
+          io.in(userId).socketsJoin(newGameSession.id);
 
           console.log(userId, `- leaving lobby`);
           io.in(userId).socketsLeave("lobby");
         }
 
-        activeGames.set(newGame.id, newGame);
+        gameSessions.set(newGameSession.id, newGameSession);
 
-        io.to(newGame.id).emit("GAME_INITIALISED", {
-          userDetails: getPlayerUserDetailsByGameId(newGame.id),
-          gameState: newGame.getFullGameState(),
+        io.to(newGameSession.id).emit("GAME_INITIALISED", {
+          userDetails: getPlayerUserDetailsByGameId(newGameSession.id),
+          gameState: newGameSession.getSendableState(),
         });
       }
     } catch (e) {
@@ -220,32 +226,38 @@ io.on("connection", (socket) => {
   });
 
   socket.on("POST_MOVE", ({ move }) => {
-    const game = getActiveGameByUserId(socket.userId);
+    const gameSession = getActiveGameSessionByUserId(socket.userId);
 
     try {
-      if (game) {
-        game.move(socket.userId, move);
+      if (gameSession) {
+        gameSession.handleMove(socket.userId, move);
 
-        io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
+        io.to(gameSession.id).emit(
+          "GAME_STATE_UPDATED",
+          gameSession.getSendableState()
+        );
       } else {
         throw new Error("game not found");
       }
     } catch (e) {
-      handleError(game.id, `Error when performing move - ${e}`);
+      handleError(gameSession.id, `Error when performing move - ${e}`);
     }
   });
 
   socket.on("POST_PROMOTION_OPTION", ({ newType }) => {
-    const game = getActiveGameByUserId(socket.userId);
+    const gameSession = getActiveGameSessionByUserId(socket.userId);
 
     try {
-      if (game) {
-        game.promote(socket.userId, newType);
+      if (gameSession) {
+        gameSession.handlePromotion(socket.userId, newType);
 
-        io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
+        io.to(gameSession.id).emit(
+          "GAME_STATE_UPDATED",
+          gameSession.getSendableState()
+        );
       }
     } catch (e) {
-      handleError(game.id, `Error promoting piece - ${e}`);
+      handleError(gameSession.id, `Error promoting piece - ${e}`);
     }
   });
 
@@ -264,45 +276,48 @@ const handleError = (broadcastChannel, errorMessage) => {
 };
 
 const handleForfeit = (userId) => {
-  const game = getActiveGameByUserId(userId);
+  const gameSession = getActiveGameSessionByUserId(userId);
 
   try {
-    if (game) {
-      game.forfeit(userId);
+    if (gameSession) {
+      gameSession.handleForfeit(userId);
 
-      io.to(game.id).emit("GAME_STATE_UPDATED", game.getGameState());
+      io.to(gameSession.id).emit(
+        "GAME_STATE_UPDATED",
+        gameSession.getSendableState()
+      );
     } else {
       throw new Error("game not found");
     }
   } catch (e) {
-    handleError(game?.id, `Error when attempting to forfeit - ${e}`);
+    handleError(gameSession?.id, `Error when attempting to forfeit - ${e}`);
   }
 };
 
 const handleLeaveGame = (userId) => {
-  const game = getActiveGameByUserId(userId);
+  const gameSession = getActiveGameSessionByUserId(userId);
 
   try {
-    if (game) {
-      game.players.splice(
-        game.players.findIndex((player) => player.userId === userId),
+    if (gameSession) {
+      gameSession.players.splice(
+        gameSession.players.findIndex((player) => player.userId === userId),
         1
       );
 
-      io.in(userId).socketsLeave(game.id);
+      io.in(userId).socketsLeave(gameSession.id);
 
-      console.log(`${userId} has left game ${game.id}`);
+      console.log(`${userId} has left game ${gameSession.id}`);
 
       //if both players have left, remove the game from game store
-      if (game.players.length === 0) {
-        activeGames.delete(game.id);
-        console.log(`removed game ${game.id}`);
+      if (gameSession.players.length === 0) {
+        gameSessions.delete(gameSession.id);
+        console.log(`removed game ${gameSession.id}`);
       }
     } else {
       throw new Error("game not found");
     }
   } catch (e) {
-    handleError(game?.id, `Error when attempting to leave - ${e}`);
+    handleError(gameSession?.id, `Error when attempting to leave - ${e}`);
   }
 };
 
