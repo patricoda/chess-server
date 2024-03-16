@@ -2,6 +2,8 @@ import http from "http";
 import { Server } from "socket.io";
 import { randomUUID } from "crypto";
 import GameSession from "./classes/gameSession.js";
+import UserSessionManager from "./classes/userSessionManager.js";
+import GameSessionManager from "./classes/gameSessionManager.js";
 
 const server = http.createServer();
 
@@ -16,41 +18,14 @@ server.listen(3001, () => {
   console.log("listening on *:3001");
 });
 
-//TODO make class for storing / handling userSessions
-//TODO make class for storing / handling active games
-const userSessions = new Map();
-const gameSessions = new Map();
-
-const getActiveGameSessionByUserId = (userId) => {
-  for (const [id, gameSession] of gameSessions) {
-    const userIsParticipant = gameSession.players.some(
-      (player) => player.userId === userId
-    );
-
-    if (userIsParticipant) {
-      return gameSession;
-    }
-  }
-
-  return null;
-};
-
-const getActiveUserSessionBySessionId = (sessionId) =>
-  userSessions.get(sessionId);
-
-const getActiveSessionByUserId = (userId) => {
-  for (const [id, userSession] of userSessions) {
-    if (userSession.userId === userId) {
-      return userSession;
-    }
-  }
-
-  return null;
-};
+const userSessionManager = new UserSessionManager();
+const gameSessionManager = new GameSessionManager();
 
 const getPlayerUserDetailsByGameId = (gameId) =>
-  gameSessions.get(gameId).players.map((player) => {
-    const { username, isConnected } = getActiveSessionByUserId(player.userId);
+  gameSessionManager.getById(gameId).players.map((player) => {
+    const { username, isConnected } = userSessionManager.getByUserId(
+      player.userId
+    );
 
     return { username, isConnected };
   });
@@ -62,7 +37,7 @@ io.use((socket, next) => {
 
   if (existingSessionId) {
     //if a session id has been passed, find and restore the session if it exists
-    const userSession = getActiveUserSessionBySessionId(existingSessionId);
+    const userSession = userSessionManager.getById(existingSessionId);
 
     if (userSession) {
       console.log("Found user session with id: ", existingSessionId);
@@ -91,7 +66,7 @@ io.use((socket, next) => {
   socket.userId = userId;
   socket.username = username;
 
-  userSessions.set(sessionId, {
+  userSessionManager.set(sessionId, {
     sessionId,
     userId,
     username,
@@ -108,10 +83,14 @@ io.use((socket, next) => {
 io.on("connection", (socket) => {
   console.log(`user connected - ${socket.username} (${socket.userId})`);
 
-  const userSession = getActiveUserSessionBySessionId(socket.sessionId);
-  userSessions.set(socket.sessionId, { ...userSession, isConnected: true });
+  const userSession = userSessionManager.getById(socket.sessionId);
 
-  const activeGame = getActiveGameSessionByUserId(socket.userId);
+  userSessionManager.set(socket.sessionId, {
+    ...userSession,
+    isConnected: true,
+  });
+
+  const activeGame = gameSessionManager.getByUserId(socket.userId);
 
   if (activeGame) {
     io.to(activeGame.id).emit("USER_CONNECTED", socket.userId);
@@ -135,7 +114,7 @@ io.on("connection", (socket) => {
   socket.on("AWAITING_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
-      const gameSession = getActiveGameSessionByUserId(socket.userId);
+      const gameSession = gameSessionManager.getByUserId(socket.userId);
 
       if (gameSession) {
         console.log(
@@ -146,7 +125,7 @@ io.on("connection", (socket) => {
         //TODO: extract into function
         socket.emit("GAME_INITIALISED", {
           userDetails: getPlayerUserDetailsByGameId(gameSession.id),
-          gameState: gameSession.getFullGameState(),
+          gameState: gameSession.getSendableState(),
         });
 
         return;
@@ -185,7 +164,9 @@ io.on("connection", (socket) => {
               ({ userId: userIdToCompare }) => userId === userIdToCompare
             )
         )
-        .filter(({ userId }) => getActiveSessionByUserId(userId).isConnected);
+        .filter(
+          ({ userId }) => userSessionManager.getByUserId(userId).isConnected
+        );
 
       if (onlinePlayerSockets.length > 1) {
         console.log("Initialising new game session");
@@ -205,7 +186,7 @@ io.on("connection", (socket) => {
           io.in(userId).socketsLeave("lobby");
         }
 
-        gameSessions.set(newGameSession.id, newGameSession);
+        gameSessionManager.set(newGameSession.id, newGameSession);
 
         io.to(newGameSession.id).emit("GAME_INITIALISED", {
           userDetails: getPlayerUserDetailsByGameId(newGameSession.id),
@@ -226,7 +207,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("POST_MOVE", ({ move }) => {
-    const gameSession = getActiveGameSessionByUserId(socket.userId);
+    const gameSession = gameSessionManager.getByUserId(socket.userId);
 
     try {
       if (gameSession) {
@@ -240,12 +221,12 @@ io.on("connection", (socket) => {
         throw new Error("game not found");
       }
     } catch (e) {
-      handleError(gameSession.id, `Error when performing move - ${e}`);
+      handleError(gameSession?.id, `Error when performing move - ${e}`);
     }
   });
 
   socket.on("POST_PROMOTION_OPTION", ({ newType }) => {
-    const gameSession = getActiveGameSessionByUserId(socket.userId);
+    const gameSession = gameSessionManager.getByUserId(socket.userId);
 
     try {
       if (gameSession) {
@@ -257,7 +238,7 @@ io.on("connection", (socket) => {
         );
       }
     } catch (e) {
-      handleError(gameSession.id, `Error promoting piece - ${e}`);
+      handleError(gameSession?.id, `Error promoting piece - ${e}`);
     }
   });
 
@@ -276,7 +257,7 @@ const handleError = (broadcastChannel, errorMessage) => {
 };
 
 const handleForfeit = (userId) => {
-  const gameSession = getActiveGameSessionByUserId(userId);
+  const gameSession = gameSessionManager.getByUserId(userId);
 
   try {
     if (gameSession) {
@@ -295,7 +276,7 @@ const handleForfeit = (userId) => {
 };
 
 const handleLeaveGame = (userId) => {
-  const gameSession = getActiveGameSessionByUserId(userId);
+  const gameSession = gameSessionManager.getByUserId(userId);
 
   try {
     if (gameSession) {
@@ -310,7 +291,7 @@ const handleLeaveGame = (userId) => {
 
       //if both players have left, remove the game from game store
       if (gameSession.players.length === 0) {
-        gameSessions.delete(gameSession.id);
+        gameSessionManager.delete(gameSession.id);
         console.log(`removed game ${gameSession.id}`);
       }
     } else {
