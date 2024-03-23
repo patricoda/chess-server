@@ -101,7 +101,7 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log(`${socket.userId} disconnected`);
-    handleAbandon(socket.userId);
+    handleDisconnect(socket.userId);
   });
 
   //send user session details to connecting socket
@@ -111,7 +111,7 @@ io.on("connection", (socket) => {
     username: socket.username,
   });
 
-  socket.on("AWAITING_GAME", async () => {
+  socket.on("FIND_GAME", async () => {
     try {
       //if user already has game, rejoin and return state
       const gameSession = gameSessionManager.getByUserId(socket.userId);
@@ -183,7 +183,7 @@ io.on("connection", (socket) => {
           io.in(userId).socketsJoin(newGameSession.id);
 
           console.log(userId, `- leaving lobby`);
-          io.in(userId).socketsLeave("lobby");
+          handleLeaveLobby(userId);
         }
 
         gameSessionManager.set(newGameSession.id, newGameSession);
@@ -302,7 +302,18 @@ const handleLeaveGame = (userId) => {
   }
 };
 
-const handleAbandon = (userId) => {
-  handleForfeit(userId);
-  handleLeaveGame(userId);
+const handleLeaveLobby = async (userId) => {
+  console.log(userId, `- leaving lobby`);
+  io.in(userId).socketsLeave("lobby");
+};
+
+const handleDisconnect = (userId) => {
+  const gameSession = gameSessionManager.getByUserId(userId);
+
+  if (gameSession) {
+    handleForfeit(userId);
+    handleLeaveGame(userId);
+  } else {
+    handleLeaveLobby(userId);
+  }
 };
