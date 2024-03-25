@@ -25,11 +25,12 @@ export default class GameSession {
       const whitePlayerId =
         playerSockets[Math.floor(Math.random() * playerSockets.length)].userId;
 
-      for (const { userId } of playerSockets) {
+      for (const { userId, username } of playerSockets) {
         const isWhitePlayer = userId === whitePlayerId;
 
         const newPlayer = new Player(
           userId,
+          username,
           isWhitePlayer ? Allegiance.WHITE : Allegiance.BLACK
         );
 
@@ -86,8 +87,10 @@ export default class GameSession {
     const { board, players, promotionState, ...otherFields } = this.game;
     return {
       ...otherFields,
-      players: this.players.map(({ userId, allegiance }) => ({
+      //map class instances to sendable objects
+      players: this.players.map(({ userId, username, allegiance }) => ({
         userId,
+        username,
         allegiance,
       })),
       //TODO send board as FEN string

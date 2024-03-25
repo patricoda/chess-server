@@ -21,15 +21,6 @@ server.listen(3001, () => {
 const userSessionManager = new UserSessionManager();
 const gameSessionManager = new GameSessionManager();
 
-const getPlayerUserDetailsByGameId = (gameId) =>
-  gameSessionManager.getById(gameId).players.map((player) => {
-    const { username, isConnected } = userSessionManager.getByUserId(
-      player.userId
-    );
-
-    return { username, isConnected };
-  });
-
 //discover / create user session on handshake
 io.use((socket, next) => {
   console.log(`Looking for user session for connecting socket: ${socket.id}`);
@@ -122,9 +113,8 @@ io.on("connection", (socket) => {
         );
 
         socket.join(gameSession.id);
-        //TODO: extract into function
+
         socket.emit("GAME_INITIALISED", {
-          userDetails: getPlayerUserDetailsByGameId(gameSession.id),
           gameState: gameSession.getSendableState(),
         });
 
@@ -182,14 +172,12 @@ io.on("connection", (socket) => {
           console.log(userId, `- joining game ${newGameSession.id}`);
           io.in(userId).socketsJoin(newGameSession.id);
 
-          console.log(userId, `- leaving lobby`);
           handleLeaveLobby(userId);
         }
 
         gameSessionManager.set(newGameSession.id, newGameSession);
 
         io.to(newGameSession.id).emit("GAME_INITIALISED", {
-          userDetails: getPlayerUserDetailsByGameId(newGameSession.id),
           gameState: newGameSession.getSendableState(),
         });
       }
