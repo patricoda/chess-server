@@ -84,17 +84,14 @@ export default class GameSession {
   }
 
   getSendableState() {
-    const { board, promotionState, ...otherFields } = this.game.getGameState();
-
     return {
-      ...otherFields,
+      ...this.game.getGameState(),
       //map class instances to sendable objects
       players: this.players.map(({ userId, username, allegiance }) => ({
         userId,
         username,
         allegiance,
       })),
-      board: JSON.stringify(board),
     };
   }
 
