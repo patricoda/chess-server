@@ -11,7 +11,7 @@
   "author": "Patrick Craig <patrick.craig@olmgroup.com>",
   "license": "ISC",
   "dependencies": {
-    "@patricoda/chess-engine": "^2.1.1",
+    "@patricoda/chess-engine": "^2.2.0",
     "socket.io": "^4.6.0",
     "uuid": "^9.0.1"
   },

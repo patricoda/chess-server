@@ -94,7 +94,6 @@ export default class GameSession {
         username,
         allegiance,
       })),
-      //TODO send board as FEN string
       board: JSON.stringify(board),
     };
   }
