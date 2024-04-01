@@ -14,8 +14,10 @@ const io = new Server(server, {
   },
 });
 
-server.listen(3001, () => {
-  console.log("listening on *:3001");
+const port = process.env.PORT || 3001;
+
+server.listen(port, () => {
+  console.log(`listening on *:${port}`);
 });
 
 const userSessionManager = new UserSessionManager();
