@@ -84,7 +84,8 @@ export default class GameSession {
   }
 
   getSendableState() {
-    const { board, players, promotionState, ...otherFields } = this.game;
+    const { board, promotionState, ...otherFields } = this.game.getGameState();
+
     return {
       ...otherFields,
       //map class instances to sendable objects
@@ -94,8 +95,7 @@ export default class GameSession {
         allegiance,
       })),
       //TODO send board as FEN string
-      boardState: JSON.stringify(board),
-      isAwaitingPromotionSelection: promotionState.isAwaitingPromotionSelection,
+      board: JSON.stringify(board),
     };
   }
 
